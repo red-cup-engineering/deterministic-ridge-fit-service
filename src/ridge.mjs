@@ -1,3 +1,7 @@
+const admissible = value =>
+  (typeof value === "number" || (typeof value === "string" && value.trim() !== "")) &&
+  Number.isFinite(Number(value));
+
 const finite = (value, label) => {
   const number = Number(value);
   if (!Number.isFinite(number) || Object.is(number, -0)) throw new TypeError(`${label}-invalid`);
@@ -27,11 +31,19 @@ function solve(matrix, vector) {
 }
 
 export function fitDeterministicRidge({ samples, lambda = 1 } = {}) {
-  if (!Array.isArray(samples) || samples.length < 2 || !Number.isFinite(Number(lambda)) || Number(lambda) <= 0) throw new TypeError("ridge-fit-input-invalid");
+  if (!Array.isArray(samples) || samples.length < 2 || !admissible(lambda) || Number(lambda) <= 0) throw new TypeError("ridge-fit-input-invalid");
   const width = samples[0]?.features?.length;
-  if (!Number.isInteger(width) || width < 1 || samples.some(({ features, target }) => !Array.isArray(features) || features.length !== width || features.some((value) => !Number.isFinite(Number(value))) || !Number.isFinite(Number(target)))) throw new TypeError("ridge-sample-invalid");
+  if (!Number.isInteger(width) || width < 1 || samples.includes(undefined) ||
+      samples.some(sample => !Array.isArray(sample?.features) || sample.features.length !== width ||
+        sample.features.includes(undefined) || sample.features.some(value => !admissible(value)) ||
+        !admissible(sample.target))) {
+    throw new TypeError("ridge-sample-invalid");
+  }
   const centers = Array.from({ length: width }, (_, column) => mean(samples.map(({ features }) => finite(features[column], "feature"))));
   const scales = Array.from({ length: width }, (_, column) => deviation(samples.map(({ features }) => Number(features[column]))) || 1);
+  if (!centers.every(Number.isFinite) || !scales.every(Number.isFinite)) {
+    throw new RangeError("ridge-nonfinite-moment");
+  }
   const rows = samples.map(({ features }) => [1, ...features.map((value, column) => (Number(value) - centers[column]) / scales[column])]);
   const dimension = width + 1, matrix = Array.from({ length: dimension }, () => Array(dimension).fill(0)), vector = Array(dimension).fill(0);
   rows.forEach((row, sample) => {
@@ -41,10 +53,18 @@ export function fitDeterministicRidge({ samples, lambda = 1 } = {}) {
     }
   });
   for (let index = 1; index < dimension; index += 1) matrix[index][index] += Number(lambda);
-  return Object.freeze({ type: "DeterministicRidgeModel", version: 1, width, lambda: Number(lambda), centers: Object.freeze(centers), scales: Object.freeze(scales), coefficients: Object.freeze(solve(matrix, vector)), effect: "model-only" });
+  if (!vector.every(Number.isFinite) || matrix.some(row => !row.every(Number.isFinite))) {
+    throw new RangeError("ridge-nonfinite-moment");
+  }
+  const coefficients = solve(matrix, vector);
+  if (!coefficients.every(Number.isFinite)) throw new RangeError("ridge-nonfinite-coefficient");
+  return Object.freeze({ type: "DeterministicRidgeModel", version: 1, width, lambda: Number(lambda), centers: Object.freeze(centers), scales: Object.freeze(scales), coefficients: Object.freeze(coefficients), effect: "model-only" });
 }
 
 export function predictDeterministicRidge(model, features) {
-  if (model?.type !== "DeterministicRidgeModel" || !Array.isArray(features) || features.length !== model.width || features.some((value) => !Number.isFinite(Number(value)))) throw new TypeError("ridge-prediction-input-invalid");
+  if (model?.type !== "DeterministicRidgeModel" || !Array.isArray(features) || features.length !== model.width ||
+      features.includes(undefined) || features.some(value => !admissible(value))) {
+    throw new TypeError("ridge-prediction-input-invalid");
+  }
   return model.coefficients[0] + features.reduce((sum, value, index) => sum + model.coefficients[index + 1] * ((Number(value) - model.centers[index]) / model.scales[index]), 0);
 }

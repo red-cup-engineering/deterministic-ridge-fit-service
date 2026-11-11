@@ -8,3 +8,11 @@
 <!-- 561-group-standards:badges:end -->
 
 Fits and applies a deterministic standardized ridge model to bounded numeric samples.
+
+`fitDeterministicRidge({ samples, lambda })` takes rows of `{ features, target }`
+and a positive penalty. It centers and scales each feature by its sample
+deviation and leaves the intercept unpenalized. Pass the returned model and
+an equally sized feature vector to `predictDeterministicRidge(model, features)`.
+
+Run `npm test` to check the fitted coefficients, prediction, and refusals for
+missing or overflowing input.
